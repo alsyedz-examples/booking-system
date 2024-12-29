@@ -1,0 +1,163 @@
+version: 2.1
+
+orbs:
+  aws-cli: circleci/aws-cli@5.1.2
+  aws-ecr: circleci/aws-ecr@9.3.7
+
+jobs:
+  checkout:
+    docker:
+      - image: cimg/base:stable
+    resource_class: small
+    steps:
+      - checkout
+      - persist_to_workspace:
+          root: ~/
+          paths:
+            - ./project/project
+            - ./project/.docker
+  setup:
+    docker:
+      - image: cimg/php:8.3.4-node
+    resource_class: small
+    steps:
+      - attach_workspace:
+          at: ~/
+      - restore_cache:
+          key: deps-{{.Environment.CACHE_VERSION}}-{{ checksum "project/composer.lock" }}-{{ checksum "project/package-lock.json" }}
+      - run:
+          name: Installing composer dependencies
+          command: cd project && composer install
+      - run:
+          name: Installing node dependencies
+          command: cd project && npm install
+      - save_cache:
+          key: deps-{{.Environment.CACHE_VERSION}}-{{ checksum "project/composer.lock" }}-{{ checksum "project/package-lock.json" }}
+          paths:
+            - project/vendor
+            - project/node_modules
+  php_tests:
+    docker:
+      - image: cimg/php:8.3.4-node
+    resource_class: small
+    steps:
+      - attach_workspace:
+          at: ~/
+      - restore_cache:
+          key: deps-{{.Environment.CACHE_VERSION}}-{{ checksum "project/composer.lock" }}-{{ checksum "project/package-lock.json" }}
+      - run:
+          name: Running tests
+          command: cd project && composer run-script full-test-suite
+  node_tests:
+    docker:
+      - image: cimg/php:8.3.4-node
+    resource_class: small
+    steps:
+      - attach_workspace:
+          at: ~/
+      - restore_cache:
+          key: deps-{{.Environment.CACHE_VERSION}}-{{ checksum "project/composer.lock" }}-{{ checksum "project/package-lock.json" }}
+      - run:
+          name: Running tests (Work in progress)
+          command: cd project && echo 'Work in Progress';
+  deploy_to_dockerhub:
+    docker:
+      - image: cimg/php:8.3.4-node
+    resource_class: small
+    steps:
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - attach_workspace:
+          at: ~/
+      - restore_cache:
+          key: deps-{{.Environment.CACHE_VERSION}}-{{ checksum "project/composer.lock" }}-{{ checksum "project/package-lock.json" }}
+      - run:
+          name: Prapering env file
+          command: |
+            cd project
+            cp -v .env.example .env
+            sed -i '/MAIL/d' .env
+            sed -i 's\APP_ENV=local\APP_ENV=production\g' .env
+            sed -i 's\APP_DEBUG=true\APP_DEBUG=false\g' .env
+            sed -i 's\APP_URL=http://localhost\APP_URL=http://localhost\g' .env
+      - run:
+          name: Building assets
+          command: cd project && npm run build
+      - run:
+          name: Preparing docker image
+          command: |
+            docker build .docker/php_apache -t ${CIRCLE_PROJECT_REPONAME}
+            docker container run -d --name=${CIRCLE_PROJECT_REPONAME} ${CIRCLE_PROJECT_REPONAME}
+            docker cp ./project ${CIRCLE_PROJECT_REPONAME}:/var/www/
+            docker exec ${CIRCLE_PROJECT_REPONAME} php artisan key:generate
+            docker exec ${CIRCLE_PROJECT_REPONAME} php artisan migrate --seed --force
+            docker exec ${CIRCLE_PROJECT_REPONAME} chmod -R 777 storage
+            docker commit ${CIRCLE_PROJECT_REPONAME} ${CIRCLE_PROJECT_REPONAME}:${CIRCLE_SHA1}
+      - run:
+          name: Tagging docker image
+          command: |
+            docker tag ${CIRCLE_PROJECT_REPONAME}:${CIRCLE_SHA1} ${DOCKER_USERNAME}/${CIRCLE_PROJECT_REPONAME}:latest
+            docker tag ${CIRCLE_PROJECT_REPONAME}:${CIRCLE_SHA1} ${DOCKER_USERNAME}/${CIRCLE_PROJECT_REPONAME}:${CIRCLE_SHA1}
+      - run:
+          name: Logging into dockerhub
+          command: docker login -u ${DOCKER_USERNAME} -p ${DOCKER_PASSWORD}
+      - run:
+          name: Pushing image to DockerHub
+          command: docker push --all-tags ${DOCKER_USERNAME}/${CIRCLE_PROJECT_REPONAME}
+      - run:
+          name: Clearing docker system
+          command: |
+            docker stop ${CIRCLE_PROJECT_REPONAME}
+            docker system prune --force --all --volumes
+  deploy_to_aws_ecr:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: medium
+    steps:
+      - run:
+          name: Preparing Dockerfile
+          command: echo "FROM ${DOCKER_USERNAME}/${CIRCLE_PROJECT_REPONAME}:${CIRCLE_SHA1}" > Dockerfile
+      - aws-ecr/build_and_push_image:
+          checkout: false
+          auth:
+            - aws-cli/setup
+          create_repo: true
+          dockerfile: Dockerfile
+#          public_registry: true
+          repo: ${CIRCLE_PROJECT_REPONAME}
+          tag: latest,"${CIRCLE_SHA1}"
+          skip_when_tags_exist: false
+
+workflows:
+  version: 2
+  setup-test-build-and-deploy:
+    jobs:
+      - checkout
+      - setup:
+          requires:
+            - checkout
+      - php_tests:
+          requires:
+            - setup
+      - node_tests:
+          requires:
+            - setup
+      - hold:
+          type: approval
+          requires:
+            - php_tests
+            - node_tests
+          filters:
+            branches:
+              only:
+                - main
+      - deploy_to_dockerhub:
+          context: dockerhub
+          requires:
+            - hold
+#      - deploy_to_aws_ecr:
+#          context:
+#            - dockerhub
+#            - aws
+#          requires:
+#            - deploy_to_dockerhub

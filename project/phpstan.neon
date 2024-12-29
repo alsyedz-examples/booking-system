@@ -1,0 +1,15 @@
+parameters:
+	level: 8
+	paths:
+		- ./app
+	excludePaths:
+#	    - ./app/Console/Commands/JwtSecretGenerate.php
+#	    - ./app/Console/Commands/ApiKeyGenerate.php
+#	    - ./app/Console/Commands/AppKeyGenerate.php
+	ignoreErrors:
+#		- '#Call to an undefined static method Illuminate\\Support\\Facades\\[a-zA-Z0-9\\_]+::[a-zA-Z0-9\\_]+\(\)#'
+#		- '#Call to an undefined method Illuminate\\Database\\Eloquent\\Relations\\[a-zA-Z0-9\\_]+::[a-zA-Z0-9\\_]+\(\)#'
+	parallel:
+		maximumNumberOfProcesses: 10
+	stubFiles:
+#	    - ./stubs/helpers.stub
