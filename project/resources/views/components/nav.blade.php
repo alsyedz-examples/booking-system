@@ -23,7 +23,7 @@
             </form>
         @endauth
         @guest
-            <x-nav-link href="{{ route('login.form') }}">Login</x-nav-link>
+            <x-nav-link href="{{ route('login.form') }}" :active="request()->is('login')">Login</x-nav-link>
         @endguest
     </div>
 </nav>
