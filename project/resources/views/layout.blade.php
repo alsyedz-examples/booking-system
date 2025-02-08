@@ -22,7 +22,7 @@
         <x-nav/>
     </section>
 </header>
-<main class="border-y-2 border-primary-500">
+<main class="border-y-2">
     <section class="container mx-auto min-h-screen py-6 sm:px-6 lg:px-8">
         @yield('content')
     </section>
