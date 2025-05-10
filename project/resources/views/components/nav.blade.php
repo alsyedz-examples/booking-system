@@ -9,8 +9,8 @@
     <div class="md:grow justify-between items-center hidden md:block space-x-2">
         <div class="flex flex-row justify-center p-4 md:p-0 mt-0 font-medium border border-gray-100 rounded-lg">
             <x-nav-link :href="route('home')" :active="request()->is('/')">Home</x-nav-link>
-            <x-nav-link href="#">Services</x-nav-link>
-            <x-nav-link href="#">Contact</x-nav-link>
+            <x-nav-link :href="route('about-us')" :active="request()->is('about-us')">About Us</x-nav-link>
+            <x-nav-link :href="route('contact-us')" :active="request()->is('contact-us')">Contact Us</x-nav-link>
         </div>
     </div>
     <div class="flex justify-between items-center space-x-2">
